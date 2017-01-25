@@ -1,10 +1,11 @@
 #pragma once
-#include <time.h>
+#include "ChiliWin.h"
 
 
 typedef struct _FrameTimer
-{	
-	time_t last;
+{
+	double recipFreq;
+	long long start, stop;
 }FrameTimer;
 
 FrameTimer Timer_Create();

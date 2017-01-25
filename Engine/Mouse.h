@@ -8,14 +8,14 @@ typedef struct _Coord
 
 typedef enum _MouseType
 {
+	MouseInvalid,
 	LPress,
 	LRelease,
 	RPress,
 	RRelease,
 	WheelUp,
 	WheelDown,
-	Move,
-	MouseInvalid
+	Move
 }MouseType;
 
 typedef struct _MouseEvent

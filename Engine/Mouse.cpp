@@ -153,7 +153,7 @@ void Mouse_OnMouseEnter( Mouse * pMouse )
 
 void Mouse_OnLeftPressed( Mouse * pMouse, int x, int y )
 {
-	pMouse->rightIsPressed = true;
+	pMouse->leftIsPressed = true;
 
 	pMouse->buffer[ pMouse->elementsInBuffer ] =
 		MouseEvent_CreateInitialized( LPress, pMouse );

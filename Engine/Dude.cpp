@@ -9,8 +9,9 @@ const float Dude_height = 20.0f;
 Dude Dude_Create( float X, float Y )
 {
 	Dude d;
-	d.pos.x = X;
-	d.pos.y = Y;
+	d.pos = Vec_Create( X, Y );
+
+	return d;
 }
 
 void Dude_ClampToScreen( Dude * pDude )

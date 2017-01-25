@@ -252,7 +252,8 @@ HRESULT Gfx_Create( HWNDKey* key, Graphics *Gfx )
 	}
 
 	// allocate memory for sysbuffer (16-byte aligned for faster access)
-	Gfx->pSysBuffer = ( MyColor * )_aligned_malloc( sizeof( MyColor ) * Gfx_ScreenWidth * Gfx_ScreenHeight, 16u );
+	const int bufferSize = sizeof( MyColor ) * Gfx_ScreenWidth * Gfx_ScreenHeight;
+	Gfx->pSysBuffer = ( MyColor * )_aligned_malloc( bufferSize, 16u );
 }
 
 HRESULT Gfx_EndFrame( Graphics * pGfx )

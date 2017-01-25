@@ -21,8 +21,8 @@ Game Game_Create( MainWindow* wnd )
 	// Create meter
 	g.meter = Meter_Create( 20, 20 );
 
-	// Create poo between -15.0 and 15.0
-	const int range = 3000;
+	// Create poo velocity between -150 and 150 pixels per second
+	const int range = 30000;
 	const int half_range = range >> 1;
 	for( int i = 0; i < Game_nPoo; ++i )
 	{
@@ -118,7 +118,7 @@ void Game_ComposeFrame( Game *pGame )
 		Dude_Draw( &pGame->dude, &pGame->gfx );
 		if( pGame->isGameOver )
 		{
-			Game_DrawGameOver(pGame, 358, 268 );
+			Game_DrawGameOver( &pGame->gfx, 358, 268 );
 		}
 		Meter_Draw( &pGame->meter, &pGame->gfx );
 	}
