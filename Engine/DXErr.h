@@ -17,6 +17,7 @@
 
 #include "ChiliWin.h"
 #include <sal.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {

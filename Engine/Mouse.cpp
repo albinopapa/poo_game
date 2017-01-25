@@ -1,142 +1,221 @@
-/****************************************************************************************** 
- *	Chili DirectX Framework Version 16.07.20											  *	
- *	Mouse.cpp																			  *
- *	Copyright 2016 PlanetChili <http://www.planetchili.net>								  *
- *																						  *
- *	This file is part of The Chili DirectX Framework.									  *
- *																						  *
- *	The Chili DirectX Framework is free software: you can redistribute it and/or modify	  *
- *	it under the terms of the GNU General Public License as published by				  *
- *	the Free Software Foundation, either version 3 of the License, or					  *
- *	(at your option) any later version.													  *
- *																						  *
- *	The Chili DirectX Framework is distributed in the hope that it will be useful,		  *
- *	but WITHOUT ANY WARRANTY; without even the implied warranty of						  *
- *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the						  *
- *	GNU General Public License for more details.										  *
- *																						  *
- *	You should have received a copy of the GNU General Public License					  *
- *	along with The Chili DirectX Framework.  If not, see <http://www.gnu.org/licenses/>.  *
- ******************************************************************************************/
 #include "Mouse.h"
+#include <string.h>
 
-
-std::pair<int,int> Mouse::GetPos() const
+const unsigned int Mouse_bufferSize = 4u;
+MouseEvent MouseEvent_Create()
 {
-	return { x,y };
+	MouseEvent e;
+	e.type = MouseInvalid;
+	e.leftIsPressed = false;
+	e.rightIsPressed = false;
+	e.x = 0;
+	e.y = 0;
+	return e;
 }
 
-int Mouse::GetPosX() const
+MouseEvent MouseEvent_CreateInitialized( MouseType type, const Mouse * pParent )
 {
-	return x;
+	MouseEvent e;
+	e.type = type;
+	e.leftIsPressed = pParent->leftIsPressed;
+	e.rightIsPressed = pParent->rightIsPressed;
+	e.x = pParent->x;
+	e.y = pParent->y;
+
+	return e;
 }
 
-int Mouse::GetPosY() const
+_Bool MouseEvent_IsValid( MouseEvent * pEvent )
 {
-	return y;
+	return pEvent->type != MouseInvalid;
 }
 
-bool Mouse::LeftIsPressed() const
+MouseType MouseEvent_GetType( MouseEvent * pEvent )
 {
-	return leftIsPressed;
+	return pEvent->type;
 }
 
-bool Mouse::RightIsPressed() const
+Coord MouseEvent_GetPos( MouseEvent * pEvent )
 {
-	return rightIsPressed;
+	Coord c;
+	c.x = pEvent->x;
+	c.y = pEvent->y;
+	return c;
 }
 
-bool Mouse::IsInWindow() const
+int MouseEvent_GetPosX( MouseEvent * pEvent )
 {
-	return isInWindow;
+	return pEvent->x;
 }
 
-Mouse::Event Mouse::Read()
+int MouseEvent_GetPosY( MouseEvent * pEvent )
 {
-	if( buffer.size() > 0u )
+	return pEvent->y;
+}
+
+_Bool MouseEvent_LeftIsPressed( MouseEvent * pEvent )
+{
+	return pEvent->leftIsPressed;
+}
+
+_Bool MouseEvent_RightIsPressed( MouseEvent * pEvent )
+{
+	return pEvent->rightIsPressed;
+}
+
+Mouse Mouse_Create()
+{
+	Mouse m = { 0 };
+	m.isInWindow = Mouse_IsInWindow( &m );
+	
+	return m;
+}
+
+Coord Mouse_GetPos( Mouse * pMouse )
+{
+	Coord c;
+	c.x = pMouse->x;
+	c.y = pMouse->y;
+	return c;
+}
+
+int Mouse_GetPosX( Mouse * pMouse )
+{
+	return pMouse->x;
+}
+
+int Mouse_GetPosY( Mouse * pMouse )
+{
+	return pMouse->y;
+}
+
+bool Mouse_LeftIsPressed( Mouse * pMouse )
+{
+	return pMouse->leftIsPressed;
+}
+
+bool Mouse_RightIsPressed( Mouse * pMouse )
+{
+	return pMouse->rightIsPressed;
+}
+
+bool Mouse_IsInWindow( Mouse * pMouse )
+{
+	return pMouse->isInWindow;
+}
+
+MouseEvent Mouse_Read( Mouse * pMouse )
+{	
+	if( !Mouse_IsEmpty( pMouse ) )
 	{
-		Mouse::Event e = buffer.front();
-		buffer.pop();
+		MouseEvent e = pMouse->buffer[ 0 ];
+
+		for( int i = 0; i < pMouse->elementsInBuffer - 1; i += 1 )
+		{
+			pMouse->buffer[ i ] = pMouse->buffer[ i + 1 ];
+		}
+
+		pMouse->elementsInBuffer -= 1;
 		return e;
 	}
-	else
+
+	return MouseEvent_Create();
+}
+
+bool Mouse_IsEmpty( Mouse * pMouse )
+{
+	return pMouse->elementsInBuffer == 0;
+}
+
+void Mouse_Flush( Mouse * pMouse )
+{
+	pMouse->elementsInBuffer = 0;
+}
+
+void Mouse_OnMouseMove( Mouse * pMouse, int newx, int newy )
+{
+	pMouse->x = newx;
+	pMouse->y = newy;
+
+	pMouse->buffer[ pMouse->elementsInBuffer ] = MouseEvent_CreateInitialized( Move, pMouse );
+	Mouse_TrimBuffer(pMouse);
+}
+
+void Mouse_OnMouseLeave( Mouse * pMouse )
+{
+	pMouse->isInWindow = false;
+}
+
+void Mouse_OnMouseEnter( Mouse * pMouse )
+{
+	pMouse->isInWindow = true;
+}
+
+void Mouse_OnLeftPressed( Mouse * pMouse, int x, int y )
+{
+	pMouse->rightIsPressed = true;
+
+	pMouse->buffer[ pMouse->elementsInBuffer ] =
+		MouseEvent_CreateInitialized( LPress, pMouse );
+	pMouse->elementsInBuffer += 1;
+	Mouse_TrimBuffer( pMouse );
+}
+
+void Mouse_OnLeftReleased( Mouse * pMouse, int x, int y )
+{
+	pMouse->leftIsPressed = false;
+
+	pMouse->buffer[ pMouse->elementsInBuffer ] =
+		MouseEvent_CreateInitialized( LRelease, pMouse );
+	pMouse->elementsInBuffer += 1;
+	Mouse_TrimBuffer( pMouse );
+}
+
+void Mouse_OnRightPressed( Mouse * pMouse, int x, int y )
+{
+	pMouse->rightIsPressed = true;
+
+	pMouse->buffer[ pMouse->elementsInBuffer ] =
+		MouseEvent_CreateInitialized( RPress, pMouse );
+	pMouse->elementsInBuffer += 1;
+	Mouse_TrimBuffer( pMouse );
+}
+
+void Mouse_OnRightReleased( Mouse * pMouse, int x, int y )
+{
+	pMouse->rightIsPressed = false;
+
+	pMouse->buffer[ pMouse->elementsInBuffer ] =
+		MouseEvent_CreateInitialized( RRelease, pMouse );
+	pMouse->elementsInBuffer += 1;
+	Mouse_TrimBuffer( pMouse );
+}
+
+void Mouse_OnWheelUp( Mouse * pMouse, int x, int y )
+{
+	pMouse->buffer[ pMouse->elementsInBuffer ] = 
+		MouseEvent_CreateInitialized( WheelUp, pMouse );
+	pMouse->elementsInBuffer += 1;
+	Mouse_TrimBuffer( pMouse );
+}
+
+void Mouse_OnWheelDown( Mouse * pMouse, int x, int y )
+{
+	pMouse->buffer[ pMouse->elementsInBuffer ] = 
+		MouseEvent_CreateInitialized( WheelDown, pMouse );
+	pMouse->elementsInBuffer += 1;
+	Mouse_TrimBuffer( pMouse );
+}
+
+void Mouse_TrimBuffer( Mouse * pMouse )
+{
+	if( pMouse->elementsInBuffer >= 4 )
 	{
-		return Mouse::Event();
-	}
-}
+		for( int i = 1; i < 4; ++i )
+		{
+			pMouse->buffer[ i - 1 ] = pMouse->buffer[ i ];
+		}
 
-void Mouse::Flush()
-{
-	buffer = std::queue<Event>();
-}
-
-void Mouse::OnMouseLeave()
-{
-	isInWindow = false;
-}
-
-void Mouse::OnMouseEnter()
-{
-	isInWindow = true;
-}
-
-void Mouse::OnMouseMove( int newx,int newy )
-{
-	x = newx;
-	y = newy;
-
-	buffer.push( Mouse::Event( Mouse::Event::Move,*this ) );
-	TrimBuffer();
-}
-
-void Mouse::OnLeftPressed( int x,int y )
-{
-	leftIsPressed = true;
-
-	buffer.push( Mouse::Event( Mouse::Event::LPress,*this ) );
-	TrimBuffer();
-}
-
-void Mouse::OnLeftReleased( int x,int y )
-{
-	leftIsPressed = false;
-
-	buffer.push( Mouse::Event( Mouse::Event::LRelease,*this ) );
-	TrimBuffer();
-}
-
-void Mouse::OnRightPressed( int x,int y )
-{
-	rightIsPressed = true;
-
-	buffer.push( Mouse::Event( Mouse::Event::RPress,*this ) );
-	TrimBuffer();
-}
-
-void Mouse::OnRightReleased( int x,int y )
-{
-	rightIsPressed = false;
-
-	buffer.push( Mouse::Event( Mouse::Event::RRelease,*this ) );
-	TrimBuffer();
-}
-
-void Mouse::OnWheelUp( int x,int y )
-{
-	buffer.push( Mouse::Event( Mouse::Event::WheelUp,*this ) );
-	TrimBuffer();
-}
-
-void Mouse::OnWheelDown( int x,int y )
-{
-	buffer.push( Mouse::Event( Mouse::Event::WheelDown,*this ) );
-	TrimBuffer();
-}
-
-void Mouse::TrimBuffer()
-{
-	while( buffer.size() > bufferSize )
-	{
-		buffer.pop();
+		pMouse->elementsInBuffer -= 1;
 	}
 }

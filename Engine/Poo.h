@@ -4,17 +4,17 @@
 #include "Dude.h"
 #include "Vec2.h"
 
-class Poo
+extern const float Poo_width ;
+extern const float Poo_height;
+
+typedef struct _Poo
 {
-public:
-	void Init( const Vec2& pos_in,const Vec2& vel_in );
-	void Update( float dt );
-	bool TestCollision( const Dude& dude ) const;
-	void Draw( Graphics& gfx ) const;
-private:
 	Vec2 pos;
 	Vec2 vel;
-	static constexpr float width = 24;
-	static constexpr float height = 24;
-	bool initialized = false;
-};
+	bool initialized;
+}Poo;
+
+Poo Poo_Create( Vec2 const *const pos_in, Vec2 const *const vel_in );
+void Poo_Update( Poo *pPoo, float dt );
+bool Poo_TestCollision( Poo *pPoo, const Dude*const dude );
+void Poo_Draw( Poo *pPoo, Graphics*const gfx );

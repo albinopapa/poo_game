@@ -19,11 +19,11 @@
  *	along with this source code.  If not, see <http://www.gnu.org/licenses/>.			  *
  ******************************************************************************************/
 #pragma once
-#include "Sound.h"
-#include <random>
-#include <initializer_list>
-#include <memory>
 
+#include "Sound.h"
+
+
+#if COMPLETE
 class SoundEffect
 {
 public:
@@ -62,3 +62,4 @@ private:
 	std::normal_distribution<float> freqDist;
 	std::vector<Sound> sounds;
 };
+#endif

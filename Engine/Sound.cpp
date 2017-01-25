@@ -20,16 +20,30 @@
  ******************************************************************************************/
 #include "Sound.h"
 #include <assert.h>
-#include <algorithm>
-#include <fstream>
-#include <array>
-#include <functional>
 #include "XAudio\XAudio2.h"
-#include "DXErr.h"
+//#include "DXErr.h"
+#include "SoundVector.h"
+//#include <algorithm>
+ //#include <fstream>
+//#include <array>
+//#include <functional>
 
+#if COMPLETE
+const wchar_t* XA_SystemPath = L"XAudio2_7.dll";
+#ifdef _M_X64
+const wchar_t* XA_FolderPath = L"XAudio\\XAudio2_7_64.dll";
+const wchar_t* XA_LocalPath = L"XAudio2_7_64.dll";
+#else
+const wchar_t* XA_FolderPath = L"XAudio\\XAudio2_7_32.dll";
+const wchar_t* XA_LocalPath = L"XAudio2_7_32.dll";
+#endif
+
+
+#ifdef __cplusplus
 #define CHILI_SOUND_API_EXCEPTION( hr,note ) SoundSystem::APIException( hr,_CRT_WIDE(__FILE__),__LINE__,note )
 #define CHILI_SOUND_FILE_EXCEPTION( filename,note ) SoundSystem::FileException( _CRT_WIDE(__FILE__),__LINE__,note,filename )
 
+ SoundSystem
 SoundSystem& SoundSystem::Get()
 {
 	static SoundSystem instance;
@@ -61,6 +75,86 @@ void SoundSystem::PlaySoundBuffer( Sound & s,float freqMod,float vol )
 	}
 }
 
+SoundSystem::SoundSystem()
+	:
+	format( std::make_unique<WAVEFORMATEX>() )
+{
+	// setup wave format info structure
+	static_assert(nChannelsPerSound > 0u,"WAVE File Format Error: At least one channel required per audio stream");
+	static_assert(nChannelsPerSound <= XAUDIO2_MAX_AUDIO_CHANNELS,"WAVE File Format Error: Maximum audio channels per audio stream exceeded");
+	static_assert(nSamplesPerSec >= XAUDIO2_MIN_SAMPLE_RATE,"WAVE File Format Error: Sample rate lower than minimum allowed");
+	static_assert(nSamplesPerSec <= XAUDIO2_MAX_SAMPLE_RATE,"WAVE File Format Error: Sample rate exceeds maximum allowed");
+	static_assert(nBitsPerSample > 0u,"WAVE File Format Error: Bit depth of 0 bits per sample is not allowed");
+	static_assert(nBitsPerSample % 8u == 0,"WAVE File Format Error: Bit depth must be multiple of 8");
+	format->nChannels = nChannelsPerSound;
+	format->nSamplesPerSec = nSamplesPerSec;
+	format->wBitsPerSample = nBitsPerSample;
+	format->nBlockAlign = (nBitsPerSample / 8) * nChannelsPerSound;
+	format->nAvgBytesPerSec = format->nBlockAlign * nSamplesPerSec;
+	format->cbSize = 0;
+	format->wFormatTag = WAVE_FORMAT_PCM;
+	
+	 //find address of DllGetClassObject() function in the dll
+	const std::function<HRESULT(REFCLSID,REFIID,LPVOID)> DllGetClassObject =
+        reinterpret_cast<HRESULT(WINAPI*)(REFCLSID,REFIID,LPVOID)>( 
+		GetProcAddress( xaudio_dll,"DllGetClassObject" ) );
+	if( !DllGetClassObject )
+	{		
+		throw CHILI_SOUND_API_EXCEPTION( 
+			HRESULT_FROM_WIN32( GetLastError() ),
+			L"Getting process address of 'DllGetClassObject' function" );
+	}
+
+	 create the factory class for the XAudio2 component object
+	Microsoft::WRL::ComPtr<IClassFactory> pClassFactory;
+	HRESULT hr;
+	if( FAILED( hr = DllGetClassObject( 
+		 __uuidof( XAudio2 ),
+		IID_IClassFactory,
+		pClassFactory.ReleaseAndGetAddressOf() ) ) )
+	{
+		throw CHILI_SOUND_API_EXCEPTION( hr,L"Creating factory for XAudio2 object" );
+	}
+
+	 create the XAudio2 component object itself
+	if( FAILED( hr = pClassFactory->CreateInstance( nullptr,
+		__uuidof( IXAudio2 ),&pEngine ) ) )
+	{
+		throw CHILI_SOUND_API_EXCEPTION( hr,L"Creating XAudio2 object" );
+	}
+
+	 initialize the XAudio2 component object
+	if( FAILED( hr = pEngine->Initialize( 0,XAUDIO2_DEFAULT_PROCESSOR ) ) )
+	{
+		throw CHILI_SOUND_API_EXCEPTION( hr,L"Initializing XAudio2 object" );
+	}
+
+	 create the mastering voice
+	if( FAILED( hr = pEngine->CreateMasteringVoice( &pMaster ) ) )
+	{
+		throw CHILI_SOUND_API_EXCEPTION( hr,L"Creating mastering voice" );
+	}
+
+	 create channel objects
+	for( int i = 0; i < nChannels; i++ )
+	{
+		idleChannelPtrs.push_back( std::make_unique<Channel>( *this ) );
+	}
+}
+
+void SoundSystem::DeactivateChannel( Channel & channel )
+{
+	std::lock_guard<std::mutex> lock( mutex );
+	auto i = std::find_if( activeChannelPtrs.begin(),activeChannelPtrs.end(),
+		[&channel]( const std::unique_ptr<Channel>& pChan ) -> bool
+	{
+		return &channel == pChan.get();
+	} );
+	idleChannelPtrs.push_back( std::move( *i ) );
+	activeChannelPtrs.erase( i );
+}
+
+// XAudioDll
 SoundSystem::XAudioDll::XAudioDll()
 {
 	LoadType type = LoadType::System;
@@ -75,25 +169,25 @@ SoundSystem::XAudioDll::XAudioDll()
 		{
 			switch( type )
 			{
-			case LoadType::System:
-				type = LoadType::Folder;
-				break;
-			case LoadType::Folder:
-				type = LoadType::Local;
-				break;
-			case LoadType::Local:
-				throw CHILI_SOUND_API_EXCEPTION(
-					HRESULT_FROM_WIN32( GetLastError() ),
-					std::wstring(
-						L"The XAudio2 DLL Could not be loaded. It is required that:\n"
-						L"A) [ " ) + std::wstring( GetDllPath( LoadType::Folder ) ) +
-					std::wstring( L" ] exist in the same folder as this executable;\n"
-						L"B) [ " ) + std::wstring( GetDllPath( LoadType::Local ) ) +
-					std::wstring( L" ] exist in the same folder as this executable; or\n"
-						L"C) [ XAudio2_7.dll ] be installed on this system via the DirectX"
-						L" Redistributable Installer Version June 2010\n" ) );
-			default:
-				assert( false && "Bad LoadType encountered in XAudio Dll loading sequence loop" );
+				case LoadType::System:
+					type = LoadType::Folder;
+					break;
+				case LoadType::Folder:
+					type = LoadType::Local;
+					break;
+				case LoadType::Local:
+					throw CHILI_SOUND_API_EXCEPTION(
+						HRESULT_FROM_WIN32( GetLastError() ),
+						std::wstring(
+							L"The XAudio2 DLL Could not be loaded. It is required that:\n"
+							L"A) [ " ) + std::wstring( GetDllPath( LoadType::Folder ) ) +
+						std::wstring( L" ] exist in the same folder as this executable;\n"
+									  L"B) [ " ) + std::wstring( GetDllPath( LoadType::Local ) ) +
+						std::wstring( L" ] exist in the same folder as this executable; or\n"
+									  L"C) [ XAudio2_7.dll ] be installed on this system via the DirectX"
+									  L" Redistributable Installer Version June 2010\n" ) );
+				default:
+					assert( false && "Bad LoadType encountered in XAudio Dll loading sequence loop" );
 			}
 		}
 	}
@@ -114,102 +208,25 @@ SoundSystem::XAudioDll::operator HMODULE() const
 }
 
 const wchar_t* SoundSystem::XAudioDll::GetDllPath( LoadType type )
-{
+{//
 	switch( type )
 	{
-	case LoadType::System:
-		return systemPath;
-	case LoadType::Folder:
-		return folderPath;
-	case LoadType::Local:
-		return localPath;
-	default:
-		assert( false && "Bad LoadType in GetDllPath function" );
-		return nullptr;
+		case LoadType::System:
+			return systemPath;
+		case LoadType::Folder:
+			return folderPath;
+		case LoadType::Local:
+			return localPath;
+		default:
+			assert( false && "Bad LoadType in GetDllPath function" );
+			return nullptr;
 	}
 }
 
-SoundSystem::SoundSystem()
-	:
-	format( std::make_unique<WAVEFORMATEX>() )
-{
-	// setup wave format info structure
-	static_assert(nChannelsPerSound > 0u,"WAVE File Format Error: At least one channel required per audio stream");
-	static_assert(nChannelsPerSound <= XAUDIO2_MAX_AUDIO_CHANNELS,"WAVE File Format Error: Maximum audio channels per audio stream exceeded");
-	static_assert(nSamplesPerSec >= XAUDIO2_MIN_SAMPLE_RATE,"WAVE File Format Error: Sample rate lower than minimum allowed");
-	static_assert(nSamplesPerSec <= XAUDIO2_MAX_SAMPLE_RATE,"WAVE File Format Error: Sample rate exceeds maximum allowed");
-	static_assert(nBitsPerSample > 0u,"WAVE File Format Error: Bit depth of 0 bits per sample is not allowed");
-	static_assert(nBitsPerSample % 8u == 0,"WAVE File Format Error: Bit depth must be multiple of 8");
-	format->nChannels = nChannelsPerSound;
-	format->nSamplesPerSec = nSamplesPerSec;
-	format->wBitsPerSample = nBitsPerSample;
-	format->nBlockAlign = (nBitsPerSample / 8) * nChannelsPerSound;
-	format->nAvgBytesPerSec = format->nBlockAlign * nSamplesPerSec;
-	format->cbSize = 0;
-	format->wFormatTag = WAVE_FORMAT_PCM;
-	
-	// find address of DllGetClassObject() function in the dll
-	const std::function<HRESULT(REFCLSID,REFIID,LPVOID)> DllGetClassObject =
-        reinterpret_cast<HRESULT(WINAPI*)(REFCLSID,REFIID,LPVOID)>( 
-		GetProcAddress( xaudio_dll,"DllGetClassObject" ) );
-	if( !DllGetClassObject )
-	{		
-		throw CHILI_SOUND_API_EXCEPTION( 
-			HRESULT_FROM_WIN32( GetLastError() ),
-			L"Getting process address of 'DllGetClassObject' function" );
-	}
-
-	// create the factory class for the XAudio2 component object
-	Microsoft::WRL::ComPtr<IClassFactory> pClassFactory;
-	HRESULT hr;
-	if( FAILED( hr = DllGetClassObject( 
-		 __uuidof( XAudio2 ),
-		IID_IClassFactory,
-		pClassFactory.ReleaseAndGetAddressOf() ) ) )
-	{
-		throw CHILI_SOUND_API_EXCEPTION( hr,L"Creating factory for XAudio2 object" );
-	}
-
-	// create the XAudio2 component object itself
-	if( FAILED( hr = pClassFactory->CreateInstance( nullptr,
-		__uuidof( IXAudio2 ),&pEngine ) ) )
-	{
-		throw CHILI_SOUND_API_EXCEPTION( hr,L"Creating XAudio2 object" );
-	}
-
-	// initialize the XAudio2 component object
-	if( FAILED( hr = pEngine->Initialize( 0,XAUDIO2_DEFAULT_PROCESSOR ) ) )
-	{
-		throw CHILI_SOUND_API_EXCEPTION( hr,L"Initializing XAudio2 object" );
-	}
-
-	// create the mastering voice
-	if( FAILED( hr = pEngine->CreateMasteringVoice( &pMaster ) ) )
-	{
-		throw CHILI_SOUND_API_EXCEPTION( hr,L"Creating mastering voice" );
-	}
-
-	// create channel objects
-	for( int i = 0; i < nChannels; i++ )
-	{
-		idleChannelPtrs.push_back( std::make_unique<Channel>( *this ) );
-	}
-}
-
-void SoundSystem::DeactivateChannel( Channel & channel )
-{
-	std::lock_guard<std::mutex> lock( mutex );
-	auto i = std::find_if( activeChannelPtrs.begin(),activeChannelPtrs.end(),
-		[&channel]( const std::unique_ptr<Channel>& pChan ) -> bool
-	{
-		return &channel == pChan.get();
-	} );
-	idleChannelPtrs.push_back( std::move( *i ) );
-	activeChannelPtrs.erase( i );
-}
+// Channel
 
 SoundSystem::Channel::Channel( SoundSystem & sys )
-	:
+	://
 	xaBuffer( std::make_unique<XAUDIO2_BUFFER>() )
 {
 	class VoiceCallback : public IXAudio2VoiceCallback
@@ -315,6 +332,8 @@ void SoundSystem::Channel::RetargetSound( const Sound* pOld,Sound* pNew )
 	assert( pOld == pSound );
 	pSound = pNew;
 }
+
+// Sound
 
 Sound::Sound( const std::wstring& fileName,bool loopingWithAutoCueDetect )
 	:
@@ -669,51 +688,219 @@ Sound::~Sound()
 	cvDeath.wait( lock,[this] { return activeChannelPtrs.size() == 0u; } );
 }
 
-SoundSystem::APIException::APIException( HRESULT hr,const wchar_t * file,unsigned int line,const std::wstring & note )
-	:
-	hr( hr ),
-	ChiliException( file,line,note )
+#else
+const unsigned int Sound_nullSample = 0xFFFFFFFFu;
+const float Sound_nullSeconds = -1.0f;
+
+XAudioDll XA_Create()
+{
+	XAudioDll xa;
+	xa.hModule = NULL;
+
+	SoundSystemLoadType type = SoundSystemLoadSystem;
+	while( true )
+	{
+		xa.hModule = LoadLibrary( GetDllPath( type ) );
+		if( xa.hModule != 0 )
+		{
+			return xa;
+		}
+		else
+		{
+			switch( type )
+			{
+				case SoundSystemLoadSystem:
+					type = SoundSystemLoadFolder;
+					break;
+				case SoundSystemLoadFolder:
+					type = SoundSystemLoadLocal;
+					break;
+				case SoundSystemLoadLocal:
+					// TODO: Need log file for SoundAPI exceptions
+					/*throw CHILI_SOUND_API_EXCEPTION(
+						HRESULT_FROM_WIN32( GetLastError() ),
+						std::wstring(
+							L"The XAudio2 DLL Could not be loaded. It is required that:\n"
+							L"A) [ " ) + std::wstring( GetDllPath( LoadType::Folder ) ) +
+						std::wstring( L" ] exist in the same folder as this executable;\n"
+									  L"B) [ " ) + std::wstring( GetDllPath( LoadType::Local ) ) +
+						std::wstring( L" ] exist in the same folder as this executable; or\n"
+									  L"C) [ XAudio2_7.dll ] be installed on this system via the DirectX"
+									  L" Redistributable Installer Version June 2010\n" ) );*/
+				default:
+					assert( false && "Bad LoadType encountered in XAudio Dll loading sequence loop" );
+			}
+		}
+	}
+	return xa;
+}
+
+void XA_Destroy( XAudioDll * pXAudioDll )
+{
+	if( pXAudioDll->hModule != 0 )
+	{
+		FreeLibrary( pXAudioDll->hModule );
+		pXAudioDll->hModule = 0;
+	}
+}
+
+HMODULE XA_GetModule( XAudioDll * pXAudioDll )
+{
+	return pXAudioDll->hModule;
+}
+
+const wchar_t * XA_GetDllPath( XAudioDll * pXAudioDll, SoundSystemLoadType Type )
+{
+	switch( Type )
+	{
+		case SoundSystemLoadSystem:
+			return XA_SystemPath;
+		case SoundSystemLoadFolder:
+			return XA_FolderPath;
+		case SoundSystemLoadLocal:
+			return XA_LocalPath;
+		default:
+			assert( false && "Bad LoadType in GetDllPath function" );
+			return NULL;
+	}
+}
+
+Sound Sound_CreateAutoCueDetect( const wchar_t * fileName, bool loopingWithAutoCueDetect )
+{
+	Sound s;
+
+	return s;
+}
+
+Sound Sound_CreateNoLooping( const wchar_t * fileName, LoopType loopType )
+{
+	Sound s;
+
+	return s;
+}
+
+Sound Sound_CreateSampleRangeLoop( const wchar_t * fileName, unsigned int loopStart, unsigned int loopEnd )
+{
+	Sound s;
+
+	return s;
+}
+
+Sound Sound_CreateTimeRangeLoop( const wchar_t * fileName, float loopStart, float loopEnd )
+{
+	Sound s;
+
+	return s;
+}
+
+void Sound_Play( Sound * pSound, float freqMod, float vol )
 {}
 
-std::wstring SoundSystem::APIException::GetFullMessage() const
+void Sound_StopOne( Sound * pSound )
 {
-	return L"Error Name: " + GetErrorName() + L"\n\n" +
-		L"Error Description: " + GetErrorDescription() + L"\n\n" +
-		L"Note: " + GetNote() + L"\n\n" +
-		L"Location: " + GetLocation();
+	pthread_mutex_lock( pSound->pMutex );
+	if( Vector_GetSize( &pSound->activeChannelPtrs ) > 0u )
+	{
+		Channel *pChannel = Vector_GetFront( &pSound->activeChannelPtrs );
+		Channel_Stop(pChannel);
+	}
+
+	pthread_mutex_unlock( pSound->pMutex );
 }
 
-std::wstring SoundSystem::APIException::GetExceptionType() const
+void Sound_StopAll( Sound * pSound )
 {
-	return L"Sound System API Exception";
+	pthread_mutex_lock( pSound->pMutex );
+	const unsigned size = Vector_GetSize( &pSound->activeChannelPtrs );
+
+	for( unsigned i = 0u; i < size; i+=1u)
+	{
+		struct Channel *pChannel = Vector_GetIndexed( &pSound->activeChannelPtrs, i );
+		// Channel_Stop(pChannel);
+	}
+
+	pthread_mutex_unlock( pSound->pMutex );
 }
 
-std::wstring SoundSystem::APIException::GetErrorName() const
+void Sound_Destroy( Sound * pSound )
 {
-	return DXGetErrorString( hr );
+	// make sure nobody messes with our shit (also needed for cv.wait())
+	pthread_mutex_lock( pSound->pMutex );
+
+	// check if there are even any active channels playing our jam
+	if( Vector_GetSize(&pSound->activeChannelPtrs) == 0u )
+	{
+		pthread_mutex_unlock( pSound->pMutex );
+		return;
+	}
+
+	// stop all channels currently playing our jam
+	for( int i = 0; i < Vector_GetSize( &pSound->activeChannelPtrs ); i += 1 )
+	{
+		struct Channel *pChannel = Vector_GetIndexed( &pSound->activeChannelPtrs, i );
+		// Channel_Stop(pChannel);
+	}
+	
+	// wait for those channels to actually stop playing our jam
+	pthread_cond_wait( pSound->cvDeath, pSound->pMutex );
+	pthread_mutex_unlock( pSound->pMutex );
+}
+#endif //__cplusplus
+
+
+#pragma region VoiceCallback
+void STDMETHODCALLTYPE OnStreamEnd(){}
+void STDMETHODCALLTYPE OnVoiceProcessingPassEnd() {}
+void STDMETHODCALLTYPE OnVoiceProcessingPassStart( UINT32 SamplesRequired ) {}
+void STDMETHODCALLTYPE OnBufferEnd( void* pBufferContext )
+{
+	Channel* pChan = ( Channel* )pBufferContext;
+	Channel_Stop( pChan );
+	{
+		pthread_mutex_lock( pChan->pSound->pMutex );
+		const int idx = Vector_FindElement( &pChan->pSound->activeChannelPtrs, pChan );
+		if( idx != -1 )
+			Vector_Erase( &pChan->pSound->activeChannelPtrs, idx );
+		
+		// notify any thread that might be waiting for activeChannels
+		// to become zero (i.e. thread calling destructor)
+		pthread_cond_broadcast( pChan->pSound->cvDeath );
+		pthread_mutex_unlock( pChan->pSound->pMutex );
+	}
+	pChan->pSound = NULL;
+	
+	SoundSystem::Get().DeactivateChannel( chan );
+}
+void STDMETHODCALLTYPE OnBufferStart( void* pBufferContext ){}
+void STDMETHODCALLTYPE OnLoopEnd( void* pBufferContext ){}
+void STDMETHODCALLTYPE OnVoiceError( void* pBufferContext, HRESULT Error ){}
+#pragma endregion
+
+Channel Channel_Create( struct SoundSystem * sys )
+{
+	Channel ch;
+	ch.xaBuffer = ( XAUDIO2_BUFFER* )malloc( sizeof( XAUDIO2_BUFFER ) );
+	
+	
+	static VoiceCallback vcb;
+	ZeroMemory( xaBuffer.get(), sizeof( *xaBuffer ) );
+	xaBuffer->pContext = this;
+	HRESULT hr;
+	if( FAILED( hr = sys.pEngine->CreateSourceVoice( &pSource, sys.format.get(), 0u, 2.0f, &vcb ) ) )
+	{
+		//throw CHILI_SOUND_API_EXCEPTION( hr, L"Creating source voice for channel" );
+	}
 }
 
-std::wstring SoundSystem::APIException::GetErrorDescription() const
-{
-	std::array<wchar_t,512> wideDescription;
-	DXGetErrorDescription( hr,wideDescription.data(),wideDescription.size() );
-	return wideDescription.data();
-}
-
-SoundSystem::FileException::FileException( const wchar_t* file,unsigned int line,const std::wstring& note,const std::wstring& filename )
-	:
-	ChiliException( file,line,note ),
-	filename( filename )
+void Channel_Destroy( Channel * pChan )
 {}
 
-std::wstring SoundSystem::FileException::GetFullMessage() const
-{
-	return L"Filename: " + filename + L"\n\n" +
-		L"Note: " + GetNote() + L"\n\n" +
-		L"Location: " + GetLocation();
-}
+void Channel_PlaySoundBuffer( Channel * pChan, Sound * pSound, float freqMod, float vol )
+{}
 
-std::wstring SoundSystem::FileException::GetExceptionType() const
-{
-	return L"Sound System File Exception";
-}
+void Channel_Stop( Channel * pChan )
+{}
+
+void Channel_RetargetSound( Channel * pChan, Sound * pSound_Old, Sound * pSound_New )
+{}
+#endif

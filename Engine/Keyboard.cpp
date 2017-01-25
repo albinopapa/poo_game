@@ -1,125 +1,216 @@
-/****************************************************************************************** 
- *	Chili DirectX Framework Version 16.07.20											  *	
- *	Keyboard.cpp																		  *
- *	Copyright 2016 PlanetChili.net <http://www.planetchili.net>							  *
- *																						  *
- *	This file is part of The Chili DirectX Framework.									  *
- *																						  *
- *	The Chili DirectX Framework is free software: you can redistribute it and/or modify	  *
- *	it under the terms of the GNU General Public License as published by				  *
- *	the Free Software Foundation, either version 3 of the License, or					  *
- *	(at your option) any later version.													  *
- *																						  *
- *	The Chili DirectX Framework is distributed in the hope that it will be useful,		  *
- *	but WITHOUT ANY WARRANTY; without even the implied warranty of						  *
- *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the						  *
- *	GNU General Public License for more details.										  *
- *																						  *
- *	You should have received a copy of the GNU General Public License					  *
- *	along with The Chili DirectX Framework.  If not, see <http://www.gnu.org/licenses/>.  *
- ******************************************************************************************/
 #include "Keyboard.h"
+#include <string.h>
 
-bool Keyboard::KeyIsPressed( unsigned char keycode ) const
+const unsigned int Kbd_nKeys = 256u;
+const unsigned int Kbd_bufferSize = 4u;
+/*******************************KeyEventQueue**********************************/
+
+KeyEventQueue EventQ_Create()
 {
-	return keystates[keycode];
+	KeyEventQueue q;
+	memset( &q, 0x0, sizeof( KeyEventQueue ) );
+	q.head = q.keyevents;
+	q.tail = q.keyevents;
+
+	return q;
 }
 
-Keyboard::Event Keyboard::ReadKey()
+unsigned EventQ_Size( KeyEventQueue *pQueue )
 {
-	if( keybuffer.size() > 0u )
+	return ( pQueue->tail - pQueue->head );
+}
+
+bool EventQ_IsEmpty( KeyEventQueue *pQueue )
+{
+	return ( pQueue->tail == pQueue->head );
+}
+
+void EventQ_Clear( KeyEventQueue *pQueue )
+{
+	pQueue->tail = pQueue->head;
+}
+
+void EventQ_Push( KeyEventQueue *pQueue, KbdEvent kEvent )
+{
+	unsigned int q_size = EventQ_Size( pQueue );
+	if( q_size < 4 )
 	{
-		Keyboard::Event e = keybuffer.front();
-		keybuffer.pop();
-		return e;
-	}
-	else
-	{
-		return Keyboard::Event();
-	}
-}
-
-bool Keyboard::KeyIsEmpty() const
-{
-	return keybuffer.empty();
-}
-
-char Keyboard::ReadChar()
-{
-	if( charbuffer.size() > 0u )
-	{
-		unsigned char charcode = charbuffer.front();
-		charbuffer.pop();
-		return charcode;
-	}
-	else
-	{
-		return 0;
-	}
-}
-
-bool Keyboard::CharIsEmpty() const
-{
-	return charbuffer.empty();
-}
-
-void Keyboard::FlushKey()
-{
-	keybuffer = std::queue<Event>();
-}
-
-void Keyboard::FlushChar()
-{
-	charbuffer = std::queue<char>();
-}
-
-void Keyboard::Flush()
-{
-	FlushKey();
-	FlushChar();
-}
-
-void Keyboard::EnableAutorepeat()
-{
-	autorepeatEnabled = true;
-}
-
-void Keyboard::DisableAutorepeat()
-{
-	autorepeatEnabled = false;
-}
-
-bool Keyboard::AutorepeatIsEnabled() const
-{
-	return autorepeatEnabled;
-}
-
-void Keyboard::OnKeyPressed( unsigned char keycode )
-{
-	keystates[ keycode ] = true;	
-	keybuffer.push( Keyboard::Event( Keyboard::Event::Press,keycode ) );
-	TrimBuffer( keybuffer );
-}
-
-void Keyboard::OnKeyReleased( unsigned char keycode )
-{
-	keystates[ keycode ] = false;
-	keybuffer.push( Keyboard::Event( Keyboard::Event::Release,keycode ) );
-	TrimBuffer( keybuffer );
-}
-
-void Keyboard::OnChar( char character )
-{
-	charbuffer.push( character );
-	TrimBuffer( charbuffer );
-}
-
-template<typename T>
-void Keyboard::TrimBuffer( std::queue<T>& buffer )
-{
-	while( buffer.size() > bufferSize )
-	{
-		buffer.pop();
+		++pQueue->tail;
+		( *pQueue->tail ) = kEvent;
 	}
 }
 
+KbdEvent EventQ_Pop( KeyEventQueue *pQueue )
+{
+	if( !EventQ_IsEmpty(pQueue) )
+	{
+		--pQueue->tail;
+		return ( *pQueue->tail );
+	}
+
+	return KbdEvent_Create( Invalid, 0 );
+}
+
+/***********************************CharQueue**********************************/
+CharQueue CharQ_Create()
+{
+	CharQueue q;
+	memset( &q, 0x0, sizeof( CharQueue ) );
+	q.head = q.charbuffer;
+	q.tail = q.charbuffer;
+	return q;
+}
+
+unsigned CharQ_Size( CharQueue *pQueue )
+{
+	return ( pQueue->tail - pQueue->head );
+}
+
+bool CharQ_IsEmpty( CharQueue *pQueue )
+{
+	return ( pQueue->tail == pQueue->head );
+}
+
+void CharQ_Clear( CharQueue *pQueue )
+{
+	pQueue->tail = pQueue->head;
+}
+
+void CharQ_Push( CharQueue *pQueue, char value )
+{
+	unsigned int q_size = CharQ_Size( pQueue );
+	if( q_size < 4 )
+	{
+		++pQueue->tail;
+		( *pQueue->tail ) = value;
+	}
+}
+
+char CharQ_Pop( CharQueue *pQueue )
+{
+	if( !CharQ_IsEmpty( pQueue ) )
+	{
+		--pQueue->tail;
+		return ( *pQueue->tail );
+	}
+
+	return 0;
+}
+/**********************************End of queue********************************/
+
+KbdEvent KbdEvent_Create( KeyEventType Type, unsigned char Code )
+{
+	KbdEvent e;
+	e.code = Code;
+	e.type = Type;
+	return e;
+}
+
+bool KbdEvent_IsPress( KbdEvent * pEvent )
+{
+	return pEvent->type == Press;
+}
+
+bool KbdEvent_IsRelease( KbdEvent * pEvent )
+{
+	return pEvent->type == Release;
+}
+
+bool KbdEvent_IsValid( KbdEvent * pEvent )
+{
+	return pEvent->type != Invalid;
+}
+
+unsigned char KbdEvent_GetCode( KbdEvent * pEvent )
+{
+	return pEvent->code;
+}
+
+Keyboard Kbd_Create()
+{
+	Keyboard kbd;
+	kbd.autorepeatEnabled = 0;
+	kbd.charqueue = CharQ_Create();
+	kbd.keyqueue = EventQ_Create();
+	memset( kbd.keystates, 0x0, sizeof( int )*Kbd_nKeys );
+	return kbd;
+}
+
+bool Kbd_KeyIsPressed( Keyboard * pKbd, unsigned char keycode )
+{
+	return pKbd->keystates[ keycode ] != false;
+}
+
+KbdEvent Kbd_ReadKey( Keyboard * pKbd )
+{
+	return EventQ_Pop( &pKbd->keyqueue );
+}
+
+bool Kbd_KeyIsEmpty( Keyboard * pKbd )
+{
+	return EventQ_IsEmpty( &pKbd->keyqueue );
+}
+
+char Kbd_ReadChar( Keyboard * pKbd )
+{
+	return CharQ_Pop( &pKbd->charqueue );
+}
+
+bool Kbd_CharIsEmpty( Keyboard * pKbd )
+{
+	return CharQ_IsEmpty( &pKbd->charqueue );
+}
+
+void Kbd_FlushKey( Keyboard * pKbd )
+{
+	EventQ_Clear( &pKbd->keyqueue );
+}
+
+void Kbd_FlushChar( Keyboard * pKbd )
+{
+	CharQ_Clear( &pKbd->charqueue );
+}
+
+void Kbd_Flush( Keyboard * pKbd )
+{
+	Kbd_FlushKey( pKbd );
+	Kbd_FlushChar( pKbd );
+}
+
+void Kbd_EnableAutorepeat( Keyboard * pKbd )
+{
+	pKbd->autorepeatEnabled = true;
+}
+
+void Kbd_DisableAutorepeat( Keyboard * pKbd )
+{
+	pKbd->autorepeatEnabled = false;
+}
+
+bool Kbd_AutorepeatIsEnabled( Keyboard * pKbd )
+{
+	return pKbd->autorepeatEnabled;
+}
+
+void Kbd_OnKeyPressed( Keyboard * pKbd, unsigned char keycode )
+{
+	pKbd->keystates[ keycode ] = true;
+	KbdEvent e;
+	e.code = keycode;
+	e.type = Press;
+	EventQ_Push( &pKbd->keyqueue, e );
+}
+
+void Kbd_OnKeyReleased( Keyboard * pKbd, unsigned char keycode )
+{
+	pKbd->keystates[ keycode ] = false;
+	KbdEvent e;
+	e.code = keycode;
+	e.type = Release;
+	EventQ_Push( &pKbd->keyqueue, e );
+}
+
+void Kbd_OnChar( Keyboard * pKbd, char character )
+{
+	CharQ_Push( &pKbd->charqueue, character );
+}

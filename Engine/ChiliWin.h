@@ -62,5 +62,6 @@
 #define NOTAPE
 
 #define STRICT
+#define INITGUID
 
 #include <Windows.h>

@@ -1,11 +1,11 @@
 #pragma once
-#include <chrono>
+#include <time.h>
 
-class FrameTimer
-{
-public:
-	FrameTimer();
-	float Mark();
-private:
-	std::chrono::steady_clock::time_point last;
-};
+
+typedef struct _FrameTimer
+{	
+	time_t last;
+}FrameTimer;
+
+FrameTimer Timer_Create();
+float Timer_Mark(FrameTimer *pTimer);

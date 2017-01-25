@@ -1,97 +1,61 @@
-/****************************************************************************************** 
- *	Chili DirectX Framework Version 16.07.20											  *	
- *	Keyboard.h																			  *
- *	Copyright 2016 PlanetChili.net <http://www.planetchili.net>							  *
- *																						  *
- *	This file is part of The Chili DirectX Framework.									  *
- *																						  *
- *	The Chili DirectX Framework is free software: you can redistribute it and/or modify	  *
- *	it under the terms of the GNU General Public License as published by				  *
- *	the Free Software Foundation, either version 3 of the License, or					  *
- *	(at your option) any later version.													  *
- *																						  *
- *	The Chili DirectX Framework is distributed in the hope that it will be useful,		  *
- *	but WITHOUT ANY WARRANTY; without even the implied warranty of						  *
- *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the						  *
- *	GNU General Public License for more details.										  *
- *																						  *
- *	You should have received a copy of the GNU General Public License					  *
- *	along with The Chili DirectX Framework.  If not, see <http://www.gnu.org/licenses/>.  *
- ******************************************************************************************/
 #pragma once
-#include <queue>
-#include <bitset>
 
-class Keyboard
+#include <stdbool.h>
+
+typedef enum _EventType
 {
-	friend class MainWindow;
-public:
-	class Event
-	{
-	public:
-		enum Type
-		{
-			Press,
-			Release,
-			Invalid
-		};
-	private:
-		Type type;
-		unsigned char code;
-	public:
-		Event()
-			:
-			type( Invalid ),
-			code( 0u )
-		{}
-		Event( Type type,unsigned char code )
-			:
-			type( type ),
-			code( code )
-		{}
-		bool IsPress() const
-		{
-			return type == Press;
-		}
-		bool IsRelease() const
-		{
-			return type == Release;
-		}
-		bool IsValid() const
-		{
-			return type != Invalid;
-		}
-		unsigned char GetCode() const
-		{
-			return code;
-		}
-	};
-public:
-	Keyboard() = default;
-	Keyboard( const Keyboard& ) = delete;
-	Keyboard& operator=( const Keyboard& ) = delete;
-	bool KeyIsPressed( unsigned char keycode ) const;
-	Event ReadKey();
-	bool KeyIsEmpty() const;
-	char ReadChar();
-	bool CharIsEmpty() const;
-	void FlushKey();
-	void FlushChar();
-	void Flush();
-	void EnableAutorepeat();
-	void DisableAutorepeat();
-	bool AutorepeatIsEnabled() const;
-private:
-	void OnKeyPressed( unsigned char keycode );
-	void OnKeyReleased( unsigned char keycode );
-	void OnChar( char character );
-	template<typename T>
-	void TrimBuffer( std::queue<T>& buffer );
-private:
-	static constexpr unsigned int nKeys = 256u;
-	static constexpr unsigned int bufferSize = 4u;
-	bool autorepeatEnabled = false;
-	std::bitset<nKeys> keystates;
-	std::queue<Event> keybuffer;
-	std::queue<char> charbuffer;
-};
+	Press,
+	Release,
+	Invalid
+}KeyEventType;
+
+typedef struct _Event
+{
+	KeyEventType type;
+	unsigned char code;
+}KbdEvent;
+
+KbdEvent KbdEvent_Create( KeyEventType Type, unsigned char Code );
+bool KbdEvent_IsPress( KbdEvent *pEvent );
+bool KbdEvent_IsRelease( KbdEvent *pEvent );
+bool KbdEvent_IsValid( KbdEvent *pEvent );
+unsigned char KbdEvent_GetCode( KbdEvent *pEvent );
+
+extern const unsigned int Kbd_nKeys;
+extern const unsigned int Kbd_bufferSize;
+
+typedef struct _KeyEventQueue
+{
+	KbdEvent keyevents[ 4u ];
+	KbdEvent *head, *tail;
+}KeyEventQueue;
+
+typedef struct _CharQueue
+{
+	char charbuffer[ 4u ];
+	char *head, *tail;
+}CharQueue;
+
+typedef struct _Keyboard
+{
+	_Bool autorepeatEnabled;
+	int keystates[ 256u ];
+	KeyEventQueue keyqueue;
+	CharQueue charqueue;
+}Keyboard;
+
+Keyboard	Kbd_Create();
+bool		Kbd_KeyIsPressed( Keyboard *pKbd, unsigned char keycode );
+KbdEvent	Kbd_ReadKey( Keyboard *pKbd );
+bool		Kbd_KeyIsEmpty( Keyboard *pKbd );
+char		Kbd_ReadChar( Keyboard *pKbd );
+bool		Kbd_CharIsEmpty( Keyboard *pKbd );
+void		Kbd_FlushKey( Keyboard *pKbd );
+void		Kbd_FlushChar( Keyboard *pKbd );
+void		Kbd_Flush( Keyboard *pKbd );
+void		Kbd_EnableAutorepeat( Keyboard *pKbd );
+void		Kbd_DisableAutorepeat( Keyboard *pKbd );
+bool		Kbd_AutorepeatIsEnabled( Keyboard *pKbd );
+void		Kbd_OnKeyPressed( Keyboard *pKbd, unsigned char keycode );
+void		Kbd_OnKeyReleased( Keyboard *pKbd, unsigned char keycode );
+void		Kbd_OnChar( Keyboard *pKbd, char character );

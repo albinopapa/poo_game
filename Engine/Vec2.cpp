@@ -1,64 +1,82 @@
 #include "Vec2.h"
-#include <cmath>
+#include <math.h>
 
-Vec2::Vec2( float x_in,float y_in )
-	:
-	x( x_in ),
-	y( y_in )
+Vec2 Vec_Create( float x_in,float y_in )
 {
+	Vec2 v;
+	v.x = x_in;
+	v.y = y_in;
+
+	return v;
 }
 
-Vec2 Vec2::operator+( const Vec2& rhs ) const
+Vec2 Vec_Add( const Vec2* plhs, const Vec2* prhs )
 {
-	return Vec2( x + rhs.x,y + rhs.y );
+	Vec2 v;
+	v.x = plhs->x + prhs->x;
+	v.y = plhs->y + prhs->y;
+	return v;
 }
 
-Vec2& Vec2::operator+=( const Vec2& rhs )
+Vec2* Vec_Accumulate( Vec2* plhs, const Vec2* rhs )
 {
-	return *this = *this + rhs;
+	plhs->x += rhs->x;
+	plhs->y += rhs->y;
+	return plhs;
 }
 
-Vec2 Vec2::operator*( float rhs ) const
+Vec2 Vec_Multiply( const Vec2* plhs, float rhs )
 {
-	return Vec2( x * rhs,y * rhs );
+	Vec2 v;
+	v.x = plhs->x * rhs;
+	v.y = plhs->y * rhs;
+	return v;
 }
 
-Vec2& Vec2::operator*=( float rhs )
+Vec2* Vec_Scale( Vec2* plhs, float rhs )
 {
-	return *this = *this * rhs;
+	plhs->x *= rhs;
+	plhs->y *= rhs;
+	return plhs;
 }
 
-Vec2 Vec2::operator-( const Vec2& rhs ) const
+Vec2 Vec_Subtract( const Vec2* plhs, const Vec2* prhs )
 {
-	return Vec2( x - rhs.x,y - rhs.y );
+	Vec2 v;
+	v.x = plhs->x - prhs->x;
+	v.y = plhs->y - prhs->y;
+	return v;
 }
 
-Vec2& Vec2::operator-=( const Vec2& rhs )
+Vec2* Vec_SubtractAssign( Vec2* plhs, const Vec2* rhs )
 {
-	return *this = *this - rhs;
+	plhs->x -= rhs->x;
+	plhs->y -= rhs->y;
+	return plhs;
 }
 
-float Vec2::GetLength() const
+float Vec_GetLength( const Vec2* plhs )
 {
-	return std::sqrt( GetLengthSq() );
+	return sqrt( Vec_GetLengthSq( plhs ) );
 }
 
-float Vec2::GetLengthSq() const
+float Vec_GetLengthSq( const Vec2* plhs )
 {
-	return x * x + y * y;
+	return plhs->x * plhs->x + plhs->y * plhs->y;
 }
 
-Vec2& Vec2::Normalize()
+Vec2* Vec_Normalize( Vec2* plhs )
 {
-	return *this = GetNormalized();
+	*plhs = Vec_GetNormalized( plhs );
+	return plhs;
 }
 
-Vec2 Vec2::GetNormalized() const
+Vec2 Vec_GetNormalized( const Vec2* plhs )
 {
-	const float len = GetLength();
+	const float len = Vec_GetLength( plhs );
 	if( len != 0.0f )
 	{
-		return *this * (1.0f / len);
+		return Vec_Multiply( plhs, ( 1.f / len ) );
 	}
-	return *this;
+	return *plhs;
 }

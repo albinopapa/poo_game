@@ -1,107 +1,125 @@
-/****************************************************************************************** 
- *	Chili DirectX Framework Version 16.07.20											  *	
- *	Game.cpp																			  *
- *	Copyright 2016 PlanetChili.net <http://www.planetchili.net>							  *
- *																						  *
- *	This file is part of The Chili DirectX Framework.									  *
- *																						  *
- *	The Chili DirectX Framework is free software: you can redistribute it and/or modify	  *
- *	it under the terms of the GNU General Public License as published by				  *
- *	the Free Software Foundation, either version 3 of the License, or					  *
- *	(at your option) any later version.													  *
- *																						  *
- *	The Chili DirectX Framework is distributed in the hope that it will be useful,		  *
- *	but WITHOUT ANY WARRANTY; without even the implied warranty of						  *
- *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the						  *
- *	GNU General Public License for more details.										  *
- *																						  *
- *	You should have received a copy of the GNU General Public License					  *
- *	along with The Chili DirectX Framework.  If not, see <http://www.gnu.org/licenses/>.  *
- ******************************************************************************************/
-#include "MainWindow.h"
 #include "Game.h"
-#include <random>
+#include <time.h>
+const int Game_nPoo = 10;
 
-Game::Game( MainWindow& wnd )
-	:
-	wnd( wnd ),
-	gfx( wnd ),
-	rng( rd() ),
-	xDist( 0,770 ),
-	yDist( 0,570 ),
-	goal( Vec2( xDist( rng ),yDist( rng ) ) ),
-	meter( 20,20 )
+Game Game_Create( MainWindow* wnd )
 {
-	std::uniform_real_distribution<float> vDist( -2.5f * 60.0f,2.5f * 60.0f );
-	for( int i = 0; i < nPoo; ++i )
+	srand( time( NULL ) );
+	Game g;
+	g.wnd = wnd;
+	
+	if( !Gfx_Create( &wnd->key, &g.gfx ) )
 	{
-		poos[i].Init( Vec2( xDist( rng ),yDist( rng ) ),Vec2( vDist( rng ),vDist( rng ) ) );
+		g.isInitialized = false;
+		return g;
 	}
-	title.Play();
-}
 
-void Game::Go()
-{
-	gfx.BeginFrame();	
-	UpdateModel();
-	ComposeFrame();
-	gfx.EndFrame();
-}
+	// Create goal
+	Vec2 goalPos = Vec_Create( (float)( rand() % 770 ), (float)( rand() % 570 ));
+	g.goal = Goal_Create( &goalPos );
 
-void Game::UpdateModel()
-{
-	const float dt = ft.Mark();
+	// Create meter
+	g.meter = Meter_Create( 20, 20 );
 
-	goal.UpdateColor();
-	if( isStarted && !isGameOver )
+	// Create poo between -15.0 and 15.0
+	const int range = 3000;
+	const int half_range = range >> 1;
+	for( int i = 0; i < Game_nPoo; ++i )
 	{
-		dude.Update( wnd.mouse,dt );
-		dude.ClampToScreen();
+		const float px = ( float )( rand() % 770 );
+		const float py = ( float )( rand() % 570 );
+		const float vx = ( float )( ( rand() % range ) - half_range ) * .01f;
+		const float vy = ( float )( ( rand() % range ) - half_range ) * .01f;
+		Vec2 pos = Vec_Create( px, py );
+		const Vec2 vel = Vec_Create( vx, vy );
+		g.poos[i] = Poo_Create( &pos, &vel );
+	}
 
-		for( int i = 0; i < nPoo; ++i )
+	// Dude
+	g.dude = Dude_Create( 
+		( float )( Gfx_ScreenWidth >> 1 ), 
+		( float )( Gfx_ScreenHeight >> 1 ) 
+	);
+
+	// Initialize the frame timer
+	g.ft = Timer_Create();
+
+	// Initialize the game
+	g.isInitialized = true;
+	g.isStarted = true;
+	g.isGameOver = false;
+	
+	return g;
+	//title.Play();
+}
+
+void Game_Go( Game *pGame )
+{
+	Gfx_BeginFrame( &pGame->gfx );
+	Game_UpdateModel( pGame );
+	Game_ComposeFrame( pGame );
+	Gfx_EndFrame( &pGame->gfx );
+}
+
+void Game_UpdateModel( Game *pGame )
+{
+	const float dt = Timer_Mark( &pGame->ft );
+
+	Goal_UpdateColor( &pGame->goal );
+
+	if( pGame->isStarted && !pGame->isGameOver )
+	{
+		Dude_UpdateMouse( &pGame->dude, &pGame->wnd->mouse, dt );
+		Dude_ClampToScreen( &pGame->dude );
+
+		for( int i = 0; i < Game_nPoo; ++i )
 		{
-			poos[i].Update( dt );
-			if( poos[i].TestCollision( dude ) )
+			Poo_Update( &pGame->poos[ i ], dt );
+			if( Poo_TestCollision( &pGame->poos[ i ], &pGame->dude ) )
 			{
-				isGameOver = true;
-				fart.Play( rng );
+				pGame->isGameOver = true;
+				//fart.Play( rng );
 			}
 		}
-
-		if( goal.TestCollision( dude ) )
+		if( Goal_TestCollision(&pGame->goal, &pGame->dude ) )
 		{
-			goal.Respawn( Vec2( xDist( rng ),yDist( rng ) ) );
-			meter.IncreaseLevel();
-			pickup.Play( rng );
-		}
+			const float px = ( float )( rand() % 770 );
+			const float py = ( float )( rand() % 570 );
+			const Vec2 pos = Vec_Create( px, py );
+			Goal_Respawn( &pGame->goal, &pos );
+			Meter_IncreaseLevel( &pGame->meter );
+			//pickup.Play( rng );
+		}		
 	}
 	else
 	{
-		if( wnd.kbd.KeyIsPressed( VK_RETURN ) )
+		if( Kbd_KeyIsPressed(&pGame->wnd->kbd, VK_RETURN ) )
 		{
-			isStarted = true;
+			pGame->isStarted = true;
 		}
 	}
 }
 
-void Game::ComposeFrame()
+void Game_ComposeFrame( Game *pGame )
 {
-	if( !isStarted )
+	if( !pGame->isStarted )
 	{
-		DrawTitleScreen( 325,211 );
+		Game_DrawTitleScreen( pGame, 325, 211 );
 	}
 	else
 	{
-		goal.Draw( gfx );
-		for( int i = 0; i < nPoo; ++i )
+		Goal_Draw( &pGame->goal, &pGame->gfx );
+
+		for( int i = 0; i < Game_nPoo; ++i )
 		{
-			poos[i].Draw( gfx );
+			Poo_Draw( &pGame->poos[ i ], &pGame->gfx );
 		}
-		dude.Draw( gfx );
-		if( isGameOver )
+
+		Dude_Draw( &pGame->dude, &pGame->gfx );
+		if( pGame->isGameOver )
 		{
-			DrawGameOver( 358,268 );
+			Game_DrawGameOver(pGame, 358, 268 );
 		}
-		meter.Draw( gfx );
+		Meter_Draw( &pGame->meter, &pGame->gfx );
 	}
 }

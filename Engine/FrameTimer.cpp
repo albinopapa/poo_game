@@ -1,16 +1,20 @@
 #include "FrameTimer.h"
 
-using namespace std::chrono;
-
-FrameTimer::FrameTimer()
+// TODO: Use Windows performance timer instead of time()
+FrameTimer Timer_Create()
 {
-	last = steady_clock::now();
+	FrameTimer t = { 0 };
+	
+	time( &t.last );
+	return t;
 }
 
-float FrameTimer::Mark()
+float Timer_Mark(FrameTimer *pTimer)
 {
-	const auto old = last;
-	last = steady_clock::now();
-	const duration<float> frameTime = last - old;
-	return frameTime.count();
+	const unsigned old = pTimer->last;
+	time( &pTimer->last );
+	const float frameTime = ( float )( pTimer->last - old ) * .001f;
+
+	// TODO: Check on return value
+	return frameTime;
 }
